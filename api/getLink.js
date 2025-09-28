@@ -1,10 +1,10 @@
-// File: /api/getLink.js
+// File: /api/getLink.js - UPDATED CODE
 
-const chromium = require('chrome-aws-lambda');
+// Use the new, recommended library
+const chromium = require('@sparticuz/chromium');
 const puppeteer = require('puppeteer-core');
 
 export default async function handler(req, res) {
-  // Get the pageUrl from the app's request (e.g., .../api/getLink?pageUrl=...)
   const { pageUrl } = req.query;
 
   if (!pageUrl) {
@@ -14,32 +14,29 @@ export default async function handler(req, res) {
   let browser = null;
 
   try {
-    // Launch a virtual Chrome browser using the special Vercel-compatible packages
+    // Launch the browser using the new library's settings
     browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath,
-      headless: chromium.headless,
+      // IMPORTANT: The path is now a function call
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless, // Use the library's recommended headless mode
       ignoreHTTPSErrors: true,
     });
 
     const page = await browser.newPage();
     let m3u8Link = null;
 
-    // This is the key: Listen to all network traffic the page generates
+    // This part remains the same - it's still correct
     page.on('response', async (response) => {
       const url = response.url();
-      // If the page requests a file ending in .m3u8, we've found the streaming link!
       if (url.includes('.m3u8')) {
         m3u8Link = url;
       }
     });
 
-    // Go to the source page URL (e.g., the public domain movie page)
-    // 'networkidle2' tells Puppeteer to wait until the network is quiet, meaning JavaScript has likely finished loading
     await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 25000 });
 
-    // If we found a link, send it back to the Android app
     if (m3u8Link) {
       res.status(200).json({ videoUrl: m3u8Link });
     } else {
@@ -50,7 +47,6 @@ export default async function handler(req, res) {
     console.error(error);
     res.status(500).json({ error: 'An error occurred while scraping.', details: error.message });
   } finally {
-    // VERY IMPORTANT: Close the browser to prevent the function from timing out
     if (browser !== null) {
       await browser.close();
     }
