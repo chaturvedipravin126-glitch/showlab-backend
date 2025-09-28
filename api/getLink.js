@@ -1,6 +1,5 @@
-// File: /api/getLink.js - UPDATED CODE
+// File: /api/getLink.js - FINAL ADVANCED VERSION
 
-// Use the new, recommended library
 const chromium = require('@sparticuz/chromium');
 const puppeteer = require('puppeteer-core');
 
@@ -12,40 +11,62 @@ export default async function handler(req, res) {
   }
 
   let browser = null;
+  console.log(`Starting to scrape page: ${pageUrl}`);
 
   try {
-    // Launch the browser using the new library's settings
     browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
-      // IMPORTANT: The path is now a function call
       executablePath: await chromium.executablePath(),
-      headless: chromium.headless, // Use the library's recommended headless mode
+      headless: chromium.headless,
       ignoreHTTPSErrors: true,
     });
 
     const page = await browser.newPage();
-    let m3u8Link = null;
+    let videoUrl = null;
 
-    // This part remains the same - it's still correct
-    page.on('response', async (response) => {
-      const url = response.url();
-      if (url.includes('.m3u8')) {
-        m3u8Link = url;
+    // We will listen for network requests to find the video link
+    page.on('request', (request) => {
+      const url = request.url();
+      // Look for common video file extensions and keywords
+      if (url.includes('.m3u8') || url.includes('.mp4') || url.includes('videoplayback')) {
+        console.log(`Found potential video URL in network request: ${url}`);
+        videoUrl = url;
+        // Optional: Abort the request if you don't need to download the video itself
+        // request.abort(); 
       }
     });
+    
+    // Increased timeout to 55 seconds for slow pages
+    await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 55000 });
 
-    await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 25000 });
+    // If we haven't found a link yet, let's check for iframes
+    if (!videoUrl) {
+      console.log('No direct video link found, checking for iframes...');
+      const frames = page.frames();
+      for (const frame of frames) {
+        const frameUrl = frame.url();
+        console.log(`Checking frame with URL: ${frameUrl}`);
+        // Many sites use these domains for their players
+        if (frameUrl.includes('dood') || frameUrl.includes('streamtape') || frameUrl.includes('voe.sx')) {
+          console.log(`Found a potential player iframe: ${frameUrl}`);
+          videoUrl = frameUrl; // We might need to scrape this iframe URL in a second step, but for now, this is a good start.
+          break;
+        }
+      }
+    }
 
-    if (m3u8Link) {
-      res.status(200).json({ videoUrl: m3u8Link });
+    if (videoUrl) {
+      console.log(`Success! Returning video URL: ${videoUrl}`);
+      res.status(200).json({ videoUrl: videoUrl });
     } else {
+      console.log('Scraping finished, but no video URL was found.');
       res.status(404).json({ error: 'Could not find a streaming link on the page.' });
     }
 
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'An error occurred while scraping.', details: error.message });
+    res.status(500).json({ error: 'An error occurred during scraping.', details: error.message });
   } finally {
     if (browser !== null) {
       await browser.close();
