@@ -1,7 +1,7 @@
-// File: /api/getLink.js - DEBUG VERSION
+// File: /api/getLink.js - FINAL VERSION (Handles both <video> tags and <a> links)
 
 const chromium = require('@sparticuz/chromium');
-const puppeteer =require('puppeteer-core');
+const puppeteer = require('puppeteer-core');
 
 export default async function handler(req, res) {
   const { pageUrl } = req.query;
@@ -30,14 +30,25 @@ export default async function handler(req, res) {
     
     for (const frame of frames) {
       try {
-        const videoSrc = await frame.evaluate(() => {
+        const foundUrl = await frame.evaluate(() => {
+          // First, try to find a <video> tag's src
           const videoElement = document.querySelector('video');
-          return videoElement ? videoElement.src : null;
+          if (videoElement && videoElement.src) {
+            return videoElement.src;
+          }
+
+          // If no <video> tag, find the first download link ending in .mp4
+          const linkElement = document.querySelector('a[href$=".mp4"]');
+          if (linkElement && linkElement.href) {
+            return linkElement.href;
+          }
+          
+          return null; // Return null if nothing is found in this frame
         });
 
-        if (videoSrc) {
-          videoUrl = videoSrc;
-          break;
+        if (foundUrl) {
+          videoUrl = foundUrl;
+          break; // Exit the loop as soon as we find a link
         }
       } catch (e) {
         console.log(`Could not evaluate a frame, continuing...`);
@@ -47,15 +58,7 @@ export default async function handler(req, res) {
     if (videoUrl) {
       res.status(200).json({ videoUrl: videoUrl });
     } else {
-      // ### THIS IS THE DEBUGGING PART ###
-      // If no link is found, get the entire HTML of the page.
-      const pageContent = await page.content();
-      
-      // Send the HTML content back in the error message.
-      res.status(404).json({ 
-          error: 'Could not find a streaming link. The page HTML is attached for debugging.',
-          debug_html: pageContent 
-      });
+      res.status(404).json({ error: 'Could not find any video tag or .mp4 link on the page.' });
     }
 
   } catch (error) {
