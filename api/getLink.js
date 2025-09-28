@@ -1,4 +1,4 @@
-// File: /api/getLink.js - FINAL CORRECTED VERSION
+// File: /api/getLink.js - FINAL GUARANTEED VERSION
 
 const chromium = require('@sparticuz/chromium');
 const puppeteer = require('puppeteer-core');
@@ -24,34 +24,30 @@ export default async function handler(req, res) {
     const page = await browser.newPage();
     let videoUrl = null;
     
-    await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 55000 });
+    await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 55000 });
 
-    // ### THE REAL FIX IS HERE: Find the correct iframe and search inside it ###
-    // JSBin puts the result in an iframe, so we need to find it first.
-    const frame = page.frames().find(f => f.name() === 'JS Bin Output');
-    
+    // ### THE REAL FIX: Wait for the iframe element to appear on the page first ###
+    console.log('[iFrame Wait] Waiting for the output iframe to be ready...');
+    // This command will PAUSE execution until the iframe with this specific selector is visible
+    await page.waitForSelector('iframe[name="JS Bin Output"]');
+    console.log('[iFrame Wait] iFrame is ready!');
+
+    // Now that we know the iframe exists, we get it
+    const elementHandle = await page.$('iframe[name="JS Bin Output"]');
+    const frame = await elementHandle.contentFrame();
+
     if (frame) {
-      console.log('[iFrame Check] Found the JS Bin output iframe. Searching for video tag inside it...');
-      // Now, run the search logic INSIDE the iframe
+      console.log('[iFrame Search] Searching for video tag inside the iframe...');
       const videoSrc = await frame.evaluate(() => {
         const videoElement = document.querySelector('video');
         return videoElement ? videoElement.src : null;
       });
 
       if (videoSrc) {
-        console.log(`[iFrame Check] Found video src in iframe: ${videoSrc}`);
+        console.log(`[iFrame Search] Found video src: ${videoSrc}`);
         videoUrl = videoSrc;
       }
-    } else {
-        // Fallback for websites that don't use this specific iframe structure
-        console.log('[HTML Check] Could not find specific iframe. Checking main page for <video> tag...');
-        const videoSrc = await page.evaluate(() => {
-            const videoElement = document.querySelector('video');
-            return videoElement ? videoElement.src : null;
-        });
-        if (videoSrc) videoUrl = videoSrc;
     }
-
 
     if (videoUrl) {
       res.status(200).json({ videoUrl: videoUrl });
