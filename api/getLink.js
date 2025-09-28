@@ -1,4 +1,4 @@
-// File: /api/getLink.js - THE ULTIMATE VERSION
+// File: /api/getLink.js - FINAL CORRECTED VERSION
 
 const chromium = require('@sparticuz/chromium');
 const puppeteer = require('puppeteer-core');
@@ -11,7 +11,6 @@ export default async function handler(req, res) {
   }
 
   let browser = null;
-  console.log(`Starting to scrape page: ${pageUrl}`);
 
   try {
     browser = await puppeteer.launch({
@@ -24,37 +23,39 @@ export default async function handler(req, res) {
 
     const page = await browser.newPage();
     let videoUrl = null;
-
-    page.on('request', (request) => {
-      const url = request.url();
-      if (url.includes('.m3u8') || url.includes('.mp4') || url.includes('videoplayback')) {
-        console.log(`[Network] Found potential video URL: ${url}`);
-        if (!videoUrl) videoUrl = url; // Only set if not already found
-      }
-    });
     
     await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 55000 });
 
-    // ### NEW LOGIC: Check the final HTML for <video> tags ###
-    if (!videoUrl) {
-      console.log('[HTML Check] Network scan found nothing. Now checking HTML for <video> tags...');
-      // page.evaluate() runs JavaScript directly on the page in the browser
-      const videoSrc = await page.evaluate(() => {
-        const videoElement = document.querySelector('video'); // Find the first <video> element
-        return videoElement ? videoElement.src : null; // If found, return its 'src' attribute
+    // ### THE REAL FIX IS HERE: Find the correct iframe and search inside it ###
+    // JSBin puts the result in an iframe, so we need to find it first.
+    const frame = page.frames().find(f => f.name() === 'JS Bin Output');
+    
+    if (frame) {
+      console.log('[iFrame Check] Found the JS Bin output iframe. Searching for video tag inside it...');
+      // Now, run the search logic INSIDE the iframe
+      const videoSrc = await frame.evaluate(() => {
+        const videoElement = document.querySelector('video');
+        return videoElement ? videoElement.src : null;
       });
 
       if (videoSrc) {
-        console.log(`[HTML Check] Found video src in HTML: ${videoSrc}`);
+        console.log(`[iFrame Check] Found video src in iframe: ${videoSrc}`);
         videoUrl = videoSrc;
       }
+    } else {
+        // Fallback for websites that don't use this specific iframe structure
+        console.log('[HTML Check] Could not find specific iframe. Checking main page for <video> tag...');
+        const videoSrc = await page.evaluate(() => {
+            const videoElement = document.querySelector('video');
+            return videoElement ? videoElement.src : null;
+        });
+        if (videoSrc) videoUrl = videoSrc;
     }
 
+
     if (videoUrl) {
-      console.log(`Success! Returning video URL: ${videoUrl}`);
       res.status(200).json({ videoUrl: videoUrl });
     } else {
-      console.log('Scraping finished, but no video URL was found through any method.');
       res.status(404).json({ error: 'Could not find a streaming link on the page.' });
     }
 
