@@ -1,6 +1,5 @@
-// File: /api/getLink.js - UPDATED CODE
+// File: /api/getLink.js - MORE POWERFUL VERSION
 
-// Use the new, recommended library
 const chromium = require('@sparticuz/chromium');
 const puppeteer = require('puppeteer-core');
 
@@ -14,31 +13,31 @@ export default async function handler(req, res) {
   let browser = null;
 
   try {
-    // Launch the browser using the new library's settings
     browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
-      // IMPORTANT: The path is now a function call
       executablePath: await chromium.executablePath(),
-      headless: chromium.headless, // Use the library's recommended headless mode
+      headless: chromium.headless,
       ignoreHTTPSErrors: true,
     });
 
     const page = await browser.newPage();
-    let m3u8Link = null;
+    let videoLink = null; // Changed variable name to be more generic
 
-    // This part remains the same - it's still correct
+    // Listen to network traffic
     page.on('response', async (response) => {
       const url = response.url();
-      if (url.includes('.m3u8')) {
-        m3u8Link = url;
+      
+      // NEW: Check for both .m3u8 AND .mp4 links
+      if (url.includes('.m3u8') || url.includes('.mp4')) {
+        videoLink = url;
       }
     });
 
-    await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 25000 });
+    await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 40000 });
 
-    if (m3u8Link) {
-      res.status(200).json({ videoUrl: m3u8Link });
+    if (videoLink) {
+      res.status(200).json({ videoUrl: videoLink });
     } else {
       res.status(404).json({ error: 'Could not find a streaming link on the page.' });
     }
