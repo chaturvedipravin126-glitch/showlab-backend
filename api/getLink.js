@@ -1,4 +1,4 @@
-// File: /api/getLink.js - FINAL ADVANCED VERSION
+// File: /api/getLink.js - THE ULTIMATE VERSION
 
 const chromium = require('@sparticuz/chromium');
 const puppeteer = require('puppeteer-core');
@@ -25,34 +25,28 @@ export default async function handler(req, res) {
     const page = await browser.newPage();
     let videoUrl = null;
 
-    // We will listen for network requests to find the video link
     page.on('request', (request) => {
       const url = request.url();
-      // Look for common video file extensions and keywords
       if (url.includes('.m3u8') || url.includes('.mp4') || url.includes('videoplayback')) {
-        console.log(`Found potential video URL in network request: ${url}`);
-        videoUrl = url;
-        // Optional: Abort the request if you don't need to download the video itself
-        // request.abort(); 
+        console.log(`[Network] Found potential video URL: ${url}`);
+        if (!videoUrl) videoUrl = url; // Only set if not already found
       }
     });
     
-    // Increased timeout to 55 seconds for slow pages
     await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 55000 });
 
-    // If we haven't found a link yet, let's check for iframes
+    // ### NEW LOGIC: Check the final HTML for <video> tags ###
     if (!videoUrl) {
-      console.log('No direct video link found, checking for iframes...');
-      const frames = page.frames();
-      for (const frame of frames) {
-        const frameUrl = frame.url();
-        console.log(`Checking frame with URL: ${frameUrl}`);
-        // Many sites use these domains for their players
-        if (frameUrl.includes('dood') || frameUrl.includes('streamtape') || frameUrl.includes('voe.sx')) {
-          console.log(`Found a potential player iframe: ${frameUrl}`);
-          videoUrl = frameUrl; // We might need to scrape this iframe URL in a second step, but for now, this is a good start.
-          break;
-        }
+      console.log('[HTML Check] Network scan found nothing. Now checking HTML for <video> tags...');
+      // page.evaluate() runs JavaScript directly on the page in the browser
+      const videoSrc = await page.evaluate(() => {
+        const videoElement = document.querySelector('video'); // Find the first <video> element
+        return videoElement ? videoElement.src : null; // If found, return its 'src' attribute
+      });
+
+      if (videoSrc) {
+        console.log(`[HTML Check] Found video src in HTML: ${videoSrc}`);
+        videoUrl = videoSrc;
       }
     }
 
@@ -60,7 +54,7 @@ export default async function handler(req, res) {
       console.log(`Success! Returning video URL: ${videoUrl}`);
       res.status(200).json({ videoUrl: videoUrl });
     } else {
-      console.log('Scraping finished, but no video URL was found.');
+      console.log('Scraping finished, but no video URL was found through any method.');
       res.status(404).json({ error: 'Could not find a streaming link on the page.' });
     }
 
