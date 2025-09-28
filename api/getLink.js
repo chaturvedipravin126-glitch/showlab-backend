@@ -1,7 +1,7 @@
-// File: /api/getLink.js - BRUTE-FORCE IFRAME SCANNING
+// File: /api/getLink.js - DEBUG VERSION
 
 const chromium = require('@sparticuz/chromium');
-const puppeteer = require('puppeteer-core');
+const puppeteer =require('puppeteer-core');
 
 export default async function handler(req, res) {
   const { pageUrl } = req.query;
@@ -26,37 +26,36 @@ export default async function handler(req, res) {
     
     await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 55000 });
 
-    // ### THE NEW BRUTE-FORCE LOGIC ###
-    console.log('[Brute-Force] Starting scan of all iframes on the page...');
-    // Get all the frames (iframes) on the page
     const frames = page.frames();
-    console.log(`[Brute-Force] Found ${frames.length} frames to check.`);
-
-    // Loop through each frame one by one
+    
     for (const frame of frames) {
       try {
-        // Try to find a video tag inside the current frame
         const videoSrc = await frame.evaluate(() => {
           const videoElement = document.querySelector('video');
           return videoElement ? videoElement.src : null;
         });
 
-        // If we found a video link in this frame, our job is done!
         if (videoSrc) {
-          console.log(`[Brute-Force] SUCCESS! Found video src in a frame: ${videoSrc}`);
           videoUrl = videoSrc;
-          break; // Exit the loop
+          break;
         }
       } catch (e) {
-        // This can happen if a frame is cross-origin or inaccessible, just ignore and continue
-        console.log(`[Brute-Force] Could not access a frame, continuing...`);
+        console.log(`Could not evaluate a frame, continuing...`);
       }
     }
 
     if (videoUrl) {
       res.status(200).json({ videoUrl: videoUrl });
     } else {
-      res.status(404).json({ error: 'Could not find a streaming link in any frame on the page.' });
+      // ### THIS IS THE DEBUGGING PART ###
+      // If no link is found, get the entire HTML of the page.
+      const pageContent = await page.content();
+      
+      // Send the HTML content back in the error message.
+      res.status(404).json({ 
+          error: 'Could not find a streaming link. The page HTML is attached for debugging.',
+          debug_html: pageContent 
+      });
     }
 
   } catch (error) {
