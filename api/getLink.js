@@ -1,4 +1,4 @@
-// File: /api/getLink.js - FINAL NETWORK INTERCEPTION VERSION
+// File: /api/getLink.js - THE MOST POWERFUL & FINAL VERSION
 
 const chromium = require('@sparticuz/chromium');
 const puppeteer = require('puppeteer-core');
@@ -22,38 +22,55 @@ export default async function handler(req, res) {
     });
 
     const page = await browser.newPage();
+    let videoUrl = null;
 
-    // This is the most reliable method: Intercept network requests
+    // --- METHOD 1: Listen to Network Requests (Fastest Method) ---
     await page.setRequestInterception(true);
-
-    const videoUrlPromise = new Promise((resolve, reject) => {
-      // Set a timeout in case no link is found
-      const timeout = setTimeout(() => {
-        reject(new Error('Timeout: .m3u8 link not found within 30 seconds.'));
-      }, 30000); // 30 second timeout
-
-      page.on('request', (request) => {
-        // Check if the request URL is the video link we are looking for
-        if (request.url().includes('.m3u8') && request.resourceType() === 'manifest') {
-          clearTimeout(timeout); // Clear the timeout as we found the link
-          resolve(request.url()); // Resolve the promise with the found URL
-        } else {
-          request.continue(); // Allow other requests to continue
-        }
-      });
+    
+    page.on('request', (request) => {
+      const url = request.url();
+      // Look for both .m3u8 and .mp4
+      if ((url.includes('.m3u8') || url.includes('.mp4')) && !videoUrl) {
+        console.log(`[Network] Found potential video link: ${url}`);
+        videoUrl = url;
+      }
+      request.continue();
     });
 
-    // Go to the page. We don't need to wait for it to be fully idle.
-    await page.goto(pageUrl, { waitUntil: 'domcontentloaded' });
+    await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 55000 });
 
-    // Wait for the video link promise to resolve
-    const videoUrl = await videoUrlPromise;
+    // --- METHOD 2: HTML Scraping (Fallback Method) ---
+    // If the network listener didn't find anything, we try to scan the HTML.
+    if (!videoUrl) {
+      console.log('[HTML Fallback] Network scan found nothing. Now checking HTML...');
+      const frames = page.frames();
+      for (const frame of frames) {
+        try {
+          const foundUrlInFrame = await frame.evaluate(() => {
+            const videoEl = document.querySelector('video');
+            if (videoEl && videoEl.src) return videoEl.src;
+
+            const linkEl = document.querySelector('a[href$=".mp4"]');
+            if (linkEl && linkEl.href) return linkEl.href;
+            
+            return null;
+          });
+
+          if (foundUrlInFrame) {
+            console.log(`[HTML Fallback] Found link in a frame: ${foundUrlInFrame}`);
+            videoUrl = foundUrlInFrame;
+            break; // Exit loop once found
+          }
+        } catch (e) {
+          // Ignore frames we can't access
+        }
+      }
+    }
 
     if (videoUrl) {
       res.status(200).json({ videoUrl: videoUrl });
     } else {
-      // This part will likely not be reached because of the timeout
-      res.status(404).json({ error: 'Could not find a .m3u8 manifest link.' });
+      res.status(404).json({ error: 'Could not find any .m3u8 or .mp4 link on the page.' });
     }
 
   } catch (error) {
