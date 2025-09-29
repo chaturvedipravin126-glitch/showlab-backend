@@ -1,4 +1,4 @@
-// File: /api/getLink.js - FINAL VERSION (Handles both <video> tags and <a> links)
+// File: /api/getLink.js - FINAL NETWORK INTERCEPTION VERSION
 
 const chromium = require('@sparticuz/chromium');
 const puppeteer = require('puppeteer-core');
@@ -22,43 +22,38 @@ export default async function handler(req, res) {
     });
 
     const page = await browser.newPage();
-    let videoUrl = null;
-    
-    await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: 55000 });
 
-    const frames = page.frames();
-    
-    for (const frame of frames) {
-      try {
-        const foundUrl = await frame.evaluate(() => {
-          // First, try to find a <video> tag's src
-          const videoElement = document.querySelector('video');
-          if (videoElement && videoElement.src) {
-            return videoElement.src;
-          }
+    // This is the most reliable method: Intercept network requests
+    await page.setRequestInterception(true);
 
-          // If no <video> tag, find the first download link ending in .mp4
-          const linkElement = document.querySelector('a[href$=".mp4"]');
-          if (linkElement && linkElement.href) {
-            return linkElement.href;
-          }
-          
-          return null; // Return null if nothing is found in this frame
-        });
+    const videoUrlPromise = new Promise((resolve, reject) => {
+      // Set a timeout in case no link is found
+      const timeout = setTimeout(() => {
+        reject(new Error('Timeout: .m3u8 link not found within 30 seconds.'));
+      }, 30000); // 30 second timeout
 
-        if (foundUrl) {
-          videoUrl = foundUrl;
-          break; // Exit the loop as soon as we find a link
+      page.on('request', (request) => {
+        // Check if the request URL is the video link we are looking for
+        if (request.url().includes('.m3u8') && request.resourceType() === 'manifest') {
+          clearTimeout(timeout); // Clear the timeout as we found the link
+          resolve(request.url()); // Resolve the promise with the found URL
+        } else {
+          request.continue(); // Allow other requests to continue
         }
-      } catch (e) {
-        console.log(`Could not evaluate a frame, continuing...`);
-      }
-    }
+      });
+    });
+
+    // Go to the page. We don't need to wait for it to be fully idle.
+    await page.goto(pageUrl, { waitUntil: 'domcontentloaded' });
+
+    // Wait for the video link promise to resolve
+    const videoUrl = await videoUrlPromise;
 
     if (videoUrl) {
       res.status(200).json({ videoUrl: videoUrl });
     } else {
-      res.status(404).json({ error: 'Could not find any video tag or .mp4 link on the page.' });
+      // This part will likely not be reached because of the timeout
+      res.status(404).json({ error: 'Could not find a .m3u8 manifest link.' });
     }
 
   } catch (error) {
